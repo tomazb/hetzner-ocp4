@@ -8,6 +8,26 @@ hetzner_ip: "changeme"
 cluster_name: ocp4
 public_domain: example.com
 
+# ============================================
+# Network Mode Configuration
+# ============================================
+# Network mode: 'nat' (default) or 'bridge'
+#   - nat: Uses libvirt virtual network with NAT (recommended for most setups)
+#   - bridge: Attaches VMs directly to an existing Linux bridge
+#             See docs/bridge-networking.md for setup instructions
+# network_mode: nat
+
+# Bridge mode settings (only used when network_mode: bridge)
+# The bridge interface must already exist on the host with an IP configured
+# bridge_interface: br0
+
+# VM network subnet - must be unique per cluster when using bridge mode
+# For multi-cluster setups on the same bridge, use different subnets:
+#   Cluster 1: 192.168.50.0
+#   Cluster 2: 192.168.51.0
+#   Cluster 3: 192.168.52.0
+# vn_subnet: 192.168.50.0
+
 # DualStack:
 ip_families:
   - IPv4
