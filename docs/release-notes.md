@@ -1,5 +1,14 @@
 # RELEASE NOTES
 
+## 2025-12-17
+ * Added bridge networking mode support
+   * New `network_mode: bridge` option to attach VMs directly to existing Linux bridges
+   * System dnsmasq provides DHCP/DNS services in bridge mode
+   * Automatic DHCP range conflict detection for multi-cluster setups
+   * Unique MAC address generation per cluster using cluster name hash
+   * Full IPv4 and IPv6 (DHCPv6/RA) support
+   * See [docs/bridge-networking.md](bridge-networking.md) for configuration details
+
 ## 2025-04-10
  * Fixed the issue that nfs storage creation did not work with CentOS 10
 
