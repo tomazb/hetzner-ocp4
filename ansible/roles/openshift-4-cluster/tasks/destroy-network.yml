@@ -37,16 +37,39 @@
   tags:
     lb
 
+#
+# Bridge Mode Cleanup (dnsmasq)
+#
+- name: Bridge mode network cleanup
+  when: network_mode | default('nat') == 'bridge'
+  block:
+    - name: Remove dnsmasq configuration for {{ cluster_name }}
+      ansible.builtin.file:
+        path: "/etc/dnsmasq.d/{{ cluster_name }}.conf"
+        state: absent
+      notify: Reload dnsmasq
+
+    - name: Reload dnsmasq after removing cluster config
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: reloaded
+      ignore_errors: yes
+
+#
+# Libvirt Network Cleanup (NAT mode)
+#
 - name: Destroy Network {{ vn_name }}
   community.libvirt.virt_net:
     command: destroy
     name: "{{ vn_name }}"
   ignore_errors: yes
+  when: network_mode | default('nat') != 'bridge'
 
 - name: Undefine Network {{ vn_name }}
   community.libvirt.virt_net:
     command: undefine
     name: "{{ vn_name }}"
+  when: network_mode | default('nat') != 'bridge'
 
 - name: Check firewalld source
   ansible.builtin.shell: "firewall-cmd --zone=internal --list-sources | grep -q '{{ vn_subnet }}/24'"
