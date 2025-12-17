@@ -8,6 +8,14 @@ vn_name: "openshift-4-cluster"
 vn_internal_domain: "compute.local"
 vn_public_domain: "{{ cluster_name }}.{{ public_domain }}"
 
+# Network mode: 'nat' (default) uses libvirt virtual network with NAT
+#               'bridge' attaches VMs directly to an existing Linux bridge
+network_mode: nat
+
+# Bridge mode settings (only used when network_mode: bridge)
+# The bridge interface must already exist on the host with an IP configured
+bridge_interface: br0
+
 #
 ip_families:
   - IPv4
