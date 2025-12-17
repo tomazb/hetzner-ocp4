@@ -60,11 +60,19 @@
     <controller type="usb" index="0" model="ich9-uhci3">
       <master startport="4"/>
     </controller>
+{% if network_mode | default('nat') == 'bridge' %}
+    <interface type='bridge'>
+      <mac address='{{ vm_mac_address }}'/>
+      <source bridge='{{ bridge_interface }}'/>
+      <model type='virtio'/>
+    </interface>
+{% else %}
     <interface type='network'>
       <mac address='{{ vm_mac_address  }}'/>
       <source network='{{ vm_network }}'/>
       <model type='virtio'/>
     </interface>
+{% endif %}
     <video>
       <model type='none' />
     </video>
