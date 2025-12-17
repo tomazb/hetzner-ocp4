@@ -4,3 +4,8 @@
 
 - name: reload firewalld
   command: 'firewall-cmd --reload'
+
+- name: Reload dnsmasq
+  ansible.builtin.systemd:
+    name: dnsmasq
+    state: reloaded

@@ -37,8 +37,8 @@
       bootstrap:
       - name: bootstrap
         fqdn: "bootstrap.{{ vn_internal_domain }}"
-        mac:              "52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % 2 }}"
-        duid: "00:03:00:01:52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % 2 }}"
+        mac:              "52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % 2 }}"
+        duid: "00:03:00:01:52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % 2 }}"
         {% if 'IPv4' in ip_families -%}
         ipv4: "{{ vn_subnet_ipv4 }}.2"
         {% endif -%}
@@ -51,8 +51,8 @@
 
       - name: master-{{ id }}
         fqdn: "master-{{ id }}.{{ vn_internal_domain }}"
-        mac:              "52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + id) }}"
-        duid: "00:03:00:01:52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + id) }}"
+        mac:              "52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + id) }}"
+        duid: "00:03:00:01:52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + id) }}"
         {% if 'IPv4' in ip_families -%}
         ipv4: "{{ vn_subnet_ipv4 }}.{{ 10 + id }}"
         {% endif -%}
@@ -66,8 +66,8 @@
 
       - name: compute-{{ id }}
         fqdn: "compute-{{ id }}.{{ vn_internal_domain }}"
-        mac:              "52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + master_count|int + id) }}"
-        duid: "00:03:00:01:52:54:00:{{ '%02x' % vn_subnet.split('.')[1]|int }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + master_count|int + id) }}"
+        mac:              "52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + master_count|int + id) }}"
+        duid: "00:03:00:01:52:54:00:{{ '%02x' % (cluster_name | hash('md5') | truncate(2, end='') | int(base=16)) }}:{{ '%02x' % vn_subnet.split('.')[2]|int }}:{{ '%02x' % (10 + master_count|int + id) }}"
         {% if 'IPv4' in ip_families -%}
         ipv4: "{{ vn_subnet_ipv4 }}.{{ 10 + master_count|int + id }}"
         {% endif -%}
@@ -92,24 +92,103 @@
     verbosity: 1
 
 #
-# Libvirt Network
+# Bridge Mode Networking (dnsmasq)
 #
+- name: Bridge mode network setup
+  when: network_mode | default('nat') == 'bridge'
+  block:
+    - name: Check for existing dnsmasq cluster configs
+      ansible.builtin.find:
+        paths: /etc/dnsmasq.d
+        patterns: "*.conf"
+        excludes: "{{ cluster_name }}.conf"
+      register: existing_dnsmasq_configs
 
+    - name: Parse existing DHCP ranges for conflict detection
+      ansible.builtin.shell: |
+        grep -h '^dhcp-range=' /etc/dnsmasq.d/*.conf 2>/dev/null | grep -v "{{ cluster_name }}.conf" | cut -d= -f2 | cut -d, -f1 | cut -d. -f1-3 || true
+      register: existing_dhcp_ranges
+      changed_when: false
+      failed_when: false
+
+    - name: Check for DHCP range conflicts
+      ansible.builtin.fail:
+        msg: |
+          DHCP range conflict detected!
+          Subnet {{ vn_subnet }} ({{ vn_subnet.split('.')[:3] | join('.') }}.x) overlaps with an existing cluster configuration.
+          Existing DHCP ranges found: {{ existing_dhcp_ranges.stdout_lines | default([]) | join(', ') }}
+          Please use a different vn_subnet (e.g., 192.168.{{ range(51, 254) | random }}.0)
+      when:
+        - existing_dhcp_ranges.stdout_lines | default([]) | length > 0
+        - vn_subnet.split('.')[:3] | join('.') in existing_dhcp_ranges.stdout_lines
+
+    - name: Ensure dnsmasq package is installed
+      ansible.builtin.package:
+        name: dnsmasq
+        state: present
+
+    - name: Deploy dnsmasq configuration for {{ cluster_name }}
+      ansible.builtin.template:
+        src: templates/dnsmasq-bridge.conf.j2
+        dest: "/etc/dnsmasq.d/{{ cluster_name }}.conf"
+        mode: '0644'
+      notify: Reload dnsmasq
+
+    - name: Enable and start dnsmasq service
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: started
+        enabled: yes
+
+    - name: Reload dnsmasq to apply new configuration
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: reloaded
+
+    - name: Open firewall ports for dnsmasq on bridge interface
+      ansible.posix.firewalld:
+        zone: trusted
+        interface: "{{ bridge_interface }}"
+        state: enabled
+        permanent: yes
+        immediate: yes
+      ignore_errors: yes
+
+    - name: Allow DHCP and DNS traffic on bridge interface
+      ansible.posix.firewalld:
+        zone: trusted
+        port: "{{ item }}"
+        state: enabled
+        permanent: yes
+        immediate: yes
+      loop:
+        - 53/tcp
+        - 53/udp
+        - 67/udp
+        - 68/udp
+      ignore_errors: yes
+
+#
+# Libvirt Network (NAT mode - default)
+#
 - name: Define network {{ cluster_name }}
   community.libvirt.virt_net:
     command: define
     name: "{{ cluster_name }}"
     xml: "{{ lookup('template', 'templates/network.xml.j2') }}"
+  when: network_mode | default('nat') != 'bridge'
 
 - name: Active network {{ cluster_name }}
   community.libvirt.virt_net:
     state: active
     name: "{{ cluster_name }}"
+  when: network_mode | default('nat') != 'bridge'
 
 - name: Activate autostart network {{ cluster_name }}
   community.libvirt.virt_net:
     autostart: yes
     name: "{{ cluster_name }}"
+  when: network_mode | default('nat') != 'bridge'
 
 #
 #  Load Balancer
