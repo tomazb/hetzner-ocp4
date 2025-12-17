@@ -1,0 +1,65 @@
+# dnsmasq configuration for OpenShift cluster: {{ cluster_name }}
+# Managed by Ansible - do not edit manually
+
+# Interface binding
+interface={{ bridge_interface }}
+bind-interfaces
+
+# Disable DNS server (only use for DHCP)
+# Uncomment the next line if you want to disable DNS and only use DHCP
+# port=0
+
+# Domain configuration
+domain={{ vn_internal_domain }}
+local=/{{ vn_internal_domain }}/
+
+{% if 'IPv4' in ip_families %}
+# IPv4 DHCP configuration
+dhcp-range={{ vn_subnet_ipv4 }}.10,{{ vn_subnet_ipv4 }}.250,255.255.255.0,12h
+dhcp-option=option:router,{{ vn_subnet_ipv4 }}.1
+dhcp-option=option:dns-server,{{ vn_subnet_ipv4 }}.1
+
+# IPv4 static host reservations
+{% for node in nodes.bootstrap %}
+dhcp-host={{ node.mac }},{{ node.fqdn }},{{ node.ipv4 }}
+{% endfor %}
+{% for node in nodes.masters %}
+dhcp-host={{ node.mac }},{{ node.fqdn }},{{ node.ipv4 }}
+{% endfor %}
+{% for node in nodes.workers %}
+dhcp-host={{ node.mac }},{{ node.fqdn }},{{ node.ipv4 }}
+{% endfor %}
+
+# IPv4 DNS entries
+address=/host.{{ vn_internal_domain }}/{{ vn_subnet_ipv4 }}.1
+address=/api-int.{{ vn_public_domain }}/{{ vn_subnet_ipv4 }}.1
+address=/api.{{ vn_public_domain }}/{{ vn_subnet_ipv4 }}.1
+address=/.apps.{{ vn_public_domain }}/{{ vn_subnet_ipv4 }}.1
+{% endif %}
+
+{% if 'IPv6' in ip_families %}
+# IPv6 DHCP configuration (DHCPv6)
+dhcp-range={{ vn_subnet_ipv6 }}::1000,{{ vn_subnet_ipv6 }}::2000,64,12h
+enable-ra
+
+# IPv6 static host reservations (using DUID)
+{% for node in nodes.bootstrap %}
+dhcp-host=id:{{ node.duid }},{{ node.fqdn }},[{{ node.ipv6 }}]
+{% endfor %}
+{% for node in nodes.masters %}
+dhcp-host=id:{{ node.duid }},{{ node.fqdn }},[{{ node.ipv6 }}]
+{% endfor %}
+{% for node in nodes.workers %}
+dhcp-host=id:{{ node.duid }},{{ node.fqdn }},[{{ node.ipv6 }}]
+{% endfor %}
+
+# IPv6 DNS entries
+address=/host.{{ vn_internal_domain }}/{{ vn_subnet_ipv6 }}::1
+address=/api-int.{{ vn_public_domain }}/{{ vn_subnet_ipv6 }}::1
+address=/api.{{ vn_public_domain }}/{{ vn_subnet_ipv6 }}::1
+address=/.apps.{{ vn_public_domain }}/{{ vn_subnet_ipv6 }}::1
+{% endif %}
+
+# Logging
+log-dhcp
+log-queries
